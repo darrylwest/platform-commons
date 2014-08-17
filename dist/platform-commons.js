@@ -1,5 +1,5 @@
 /**
- *
+ * @class AppFactory
  *
  * @created: 11/18/13 1:31 PM
  * @author: darryl.west@roundpeg.com
@@ -9,11 +9,6 @@ var AppFactory = function(options) {
 
     var factory = this,
         dispatcher = null;
-
-    // define underscore/lodash as dash
-    if (typeof _ === 'function') {
-        window.dash = _ ;
-    }
 
     this.createCentralDispatcher = function() {
         if (!dispatcher) {
@@ -28,6 +23,481 @@ var AppFactory = function(options) {
 
     };
 };
+/**
+ * ApplicationStateEvent - fired during startup to specifiy the application's state.  Generally, the sequence goes
+ * from configuration to ready to start.
+ *
+ * @author darryl.west@roundpeg.com
+ */
+var ApplicationStateEvent = function( type, data ) {
+    'use strict';
+
+    this.type = type;
+    this.data = data;
+};
+
+ApplicationStateEvent.CONFIGURATION_READY = 'ConfigurationReadyEvent_ApplicationStateEvent';
+ApplicationStateEvent.APPLICATION_READY = 'ApplicationReadyEvent_ApplicationStateEvent';
+ApplicationStateEvent.APPLICATION_START = 'ApplicationStartEvent_ApplicationStateEvent';
+
+ApplicationStateEvent.createConfigurationReadyEvent = function(conf) {
+    'use strict';
+    return new ApplicationStateEvent( ApplicationStateEvent.CONFIGURATION_READY, conf );
+};
+
+ApplicationStateEvent.createApplicationReadyEvent = function(obj) {
+    'use strict';
+    return new ApplicationStateEvent( ApplicationStateEvent.APPLICATION_READY, obj );
+};
+
+ApplicationStateEvent.createApplicationStartEvent = function(obj) {
+    'use strict';
+    return new ApplicationStateEvent( ApplicationStateEvent.APPLICATION_START, obj );
+};
+
+/**
+ *
+ * @created: 12/26/12 2:54 PM
+ * @author: darryl.west@roundpeg.com
+ */
+var AuthenticationEvent = function( type, data ) {
+    'use strict';
+
+    this.type = type;
+    this.data = data;
+};
+
+AuthenticationEvent.SUCCESS = 'AuthenticationSuccess_AuthenticationEvent';
+AuthenticationEvent.FAILED = 'AuthenticationFailed_AuthenticationEvent';
+AuthenticationEvent.SERVICE_FAIL = 'ServiceFailed_AuthenticationEvent';
+
+AuthenticationEvent.createSuccessEvent = function( user ) {
+    'use strict';
+    return new AuthenticationEvent( AuthenticationEvent.SUCCESS, user );
+};
+
+AuthenticationEvent.createFailedEvent = function( reason ) {
+    'use strict';
+    return new AuthenticationEvent( AuthenticationEvent.FAILED, reason );
+};
+
+AuthenticationEvent.createServiceFailed = function( reason ) {
+    'use strict';
+    return new AuthenticationEvent( AuthenticationEvent.SERVICE_FAIL, reason );
+};
+/**
+ * BaseModel is used as the base for models that are persisted to the database.  Use ClassExtender to extend.
+ *
+ * @created: 4/1/13 10:52 AM
+ * @author: darryl.west@roundpeg.com
+ */
+var BaseModel = function(params) {
+    "use strict";
+    if (!params) params = {};
+
+    // work-around for grails/mongo ids
+    if ( params._id ) {
+        params.id = params._id;
+    }
+
+    this.id = params.id;
+    this.dateCreated = params.dateCreated;
+    this.lastUpdated = params.lastUpdated;
+    this.version = params.version === undefined ? 0 : params.version;
+};
+/**
+ * NumericRangeModel - container for named min/max numbers.  verifies that a number is inclusively between the specified
+ * min and max range.
+ *
+ * @created: 5/5/13 8:25 PM
+ * @author: darryl.west@roundpeg.com
+ */
+var NumericRangeModel = function(params) {
+    "use strict";
+
+    var range = this;
+
+    if (!params) params = {};
+
+    this.name = params.name || 'unknown';
+    this.min = typeof params.min === 'number' ? params.min : Number.MIN_VALUE;
+    this.max = typeof params.max === 'number' ? params.max : Number.MAX_VALUE;
+
+    /**
+     * specify a method that can be invoked when a value is between min and max
+     */
+    this.callbackMethod = params.callbackMethod;
+
+    /**
+     * returns true if 'n' is inclusively between min and max
+     */
+    this.isBetween = function(n) {
+        return range.min <= n && n <= range.max;
+    };
+};
+/* global ClassExtender, BaseModel */
+/**
+ * User - extends basic model with token, display name, email, dealer number, dealer name, region and status; also
+ * adds validation methods
+ */
+
+var User = function( params ) {
+    "use strict";
+    if (!params) params = {};
+
+    ClassExtender.extend( new BaseModel( params ), this );
+
+    this.ip = params.ip;
+    this.token = params.token;
+    this.username = params.username;
+    this.attributes = params.attributes;
+    this.status = params.status;
+};
+
+User.ACTIVE = 'active';
+User.INACTIVE = 'inactive';
+User.BANNED = 'banned';/**
+ * FileLoadService - a simple file reader service intended to read partial HTML pages.
+ *
+ * @created: 12/5/13 1:49 PM
+ * @author: darryl.west@roundpeg.com
+ */
+var FileLoadService = function(options) {
+    "use strict";
+
+    var service = this,
+        log = options.log || RemoteLogger.createLogger( 'FileLoadService' ),
+        ajax = options.ajax,
+        dataType = options.dataType || 'html';
+
+    this.load = function(url, successHandler, failHandler) {
+        log.info( 'file load: ', url);
+
+        if ( !failHandler ) {
+            failHandler = service.failHandler;
+        }
+
+        var obj = {
+            type:'GET',
+            dataType:dataType,
+            url:url,
+            cache:false,
+            success:successHandler,
+            error:failHandler
+        };
+
+        return ajax( obj );
+    };
+
+    this.failHandler = function( event ) {
+        var msg = [ 'Error Loading File!, status: ',
+            event.status,
+            ', message: ',
+            event.statusText
+        ].join('');
+
+        log.error( msg );
+        // alert( msg );
+    };
+
+    // constructor tests
+    if ( !ajax )  throw new Error( "service must be constructed with an ajax object" );
+};
+/**
+ * @class MessageService
+ * @classdesc Subscribe to a channel; distribute messages to listeners when they arrive
+ *
+ * @copyright Copyright &copy; 2014 Waterous
+ *
+ * @author: darryl.west@roundpeg.com
+ * @created: 6/1/14 11:43 AM
+ */
+var MessageService = function(options) {
+    'use strict';
+
+    var service = this,
+        log = options.log,
+        client = options.client,
+        channel = options.channel,
+        uid = options.uid,
+        subscribed = false,
+        listeners = [];
+
+    /**
+     * add a subscriber/listener to this message stream
+     *
+     * @param listener - function( message )
+     */
+    this.addSubscriber = function(listener) {
+        if (!subscribed) {
+            log.info('subscribe to channel: ', channel);
+            client.subscribe( channel, messageHandler );
+
+            client.then(function() {
+                log.info( 'subscription to ', channel, ' accepted...' );
+            });
+
+            subscribed = true;
+        }
+
+        log.info('add listener to channel: ', channel);
+        listeners.push( listener );
+    };
+
+    var messageHandler = function(message) {
+        log.debug('gauge message: ',  message );
+
+        listeners.forEach(function(listener) {
+            listener( message );
+        });
+    };
+
+    /**
+     * publish message (model) to the channel by wrapping in the standard wrapper
+     *
+     * @param model - data to publish
+     */
+    this.publish = function(model) {
+        var msg = {
+            ts:Date.now(),
+            version:'1.0',
+            message:model
+        };
+
+        if (uid) {
+            msg.uid = uid;
+        }
+
+        if (channel !== '/logger') {
+            log.info('publish message: ', msg);
+        }
+
+        client.publish( channel, msg );
+    };
+
+    // constructor validations
+    if ( !log ) {
+        throw new Error( 'service must be constructed with a logger' );
+    }
+
+    if ( !client ) {
+        throw new Error( 'service must be constructed with a socket client' );
+    }
+
+    if ( !channel ) {
+        throw new Error( 'service must be constructed with a channel' );
+    }
+};/**
+ * QueryService - a simple service to read json config or other files for a single listener.
+ *
+ * @created: 12/5/13 1:40 PM
+ * @author: darryl.west@roundpeg.com
+ */
+var QueryService = function( options ) {
+    "use strict";
+
+    var service = this,
+        name = options.name,
+        log = options.log || RemoteLogger.createLogger( name + 'QueryService' ),
+        url = options.url,
+        ajax = options.ajax,
+        dataType = options.dataType || 'json';
+
+    this.query = function( params, successHandler, failHandler ) {
+        log.info( 'query: ', name, ', url: ', url );
+
+        if ( !failHandler ) {
+            failHandler = service.failHandler;
+        }
+
+        var obj = {
+            type: 'GET',
+            dataType: dataType,
+            url: url,
+            data: params,
+            cache: false,
+            success: successHandler,
+            error: failHandler
+        };
+
+        return ajax( obj );
+    };
+
+    this.failHandler = function( event ) {
+        var msg = [ 'Query Service Error!, status: ',
+            event.status,
+            ', message: ',
+            event.statusText
+        ].join('');
+
+        log.error( msg );
+        // alert( msg );
+    };
+
+    // constructor tests
+    if ( !ajax )  throw new Error( "service must be constructed with an ajax object" );
+    if ( !url ) throw new Error('service requires a url');
+};
+/**
+ * @class RemoteService
+ *
+ * @copyright Copyright &copy; 2014 Waterous
+ *
+ * @author: darryl.west@roundpeg.com
+ * @created: 5/20/14 7:20 PM
+ */
+var RemoteService = function(options) {
+    'use strict';
+
+    var service = this,
+        log = options.log,
+        agent = options.agent,
+        host = options.host,
+        uri = options.uri,
+        resource = options.resource,
+        appkey = options.appkey,
+        usekey = options.usekey,
+        timeout = dash.isNumber( options.timeout ) ? options.timeout : 10000;
+
+    /**
+     * query for a list of models
+     *
+     * @param params - query criteria
+     * @param successHandler
+     * @param failHandler
+     * @returns the request object
+     */
+    this.query = function(params, successHandler, failHandler) {
+        var url = [ host, uri, resource, '/query' ].join('' ),
+            request;
+
+        if (!failHandler) {
+            failHandler = service.defaultFailHandler;
+        }
+
+        if (!successHandler) {
+            log.warn('using default success handler');
+            successHandler = service.defaultSuccessHandler;
+        }
+
+        log.info('query the service at: ', url);
+
+        request = agent.get( url ).set( 'Accept', 'application/json' );
+        request.timeout( timeout );
+
+        if (usekey) {
+            request.set( 'X-API-Key', appkey );
+        }
+
+        request.end( function(err, result) {
+            if (err) {
+                log.error( err.message );
+                return failHandler(err);
+            }
+
+            successHandler( result );
+        });
+
+        return request;
+    };
+
+    /**
+     * save (insert/update) the data model defined by the request
+     *
+     * @param request - the data model object to be sent to the server
+     * @param successHandler -
+     * @param failHandler
+     */
+    this.save = function(model, successHandler, failHandler) {
+        var url = [ host, uri, resource, '/save' ].join('' ),
+            request;
+
+        if (!failHandler) {
+            failHandler = service.defaultFailHandler;
+        }
+
+        if (!successHandler) {
+            log.warn('using default success handler');
+            successHandler = service.defaultSuccessHandler;
+        }
+
+        log.info('save the model with request: ', model, ' from url: ', url);
+
+        request = agent.put( url ).set( 'Accept', 'application/json' );
+        request.timeout( timeout );
+
+        if (usekey) {
+            request.set( 'X-API-Key', appkey );
+        }
+
+        request.end( function(err, result) {
+            if (err) {
+                log.error( err.message );
+                return failHandler(err);
+            }
+
+            successHandler( result );
+        });
+
+        return request;
+    };
+
+    /**
+     * find the single data model
+     *
+     * @param id - the model's unique identifier
+     * @param successHandler
+     * @param failHandler
+     * @returns the request object
+     */
+    this.find = function(id, successHandler, failHandler) {
+        var url = [ host, uri, resource, '/find/', id ].join('' ),
+            request;
+
+        if (!failHandler) {
+            failHandler = service.defaultFailHandler;
+        }
+
+        if (!successHandler) {
+            log.warn('using default success handler');
+            successHandler = service.defaultSuccessHandler;
+        }
+
+        log.info('find the model with url: ', url);
+
+        request = agent.get( url ).set( 'Accept', 'application/json' );
+        request.timeout( timeout );
+
+        if (usekey) {
+            request.set( 'X-API-Key', appkey );
+        }
+
+        request.end( function(err, result) {
+            if (err) {
+                log.error( err.message );
+                return failHandler(err);
+            }
+
+            successHandler( result );
+        });
+
+        return request;
+    };
+
+    this.defaultSuccessHandler = function(response) {
+        log.info('response: ', response.text);
+    };
+
+    this.defaultFailHandler = function(err) {
+        log.error( err );
+    };
+
+    // constructor validations
+    if ( !log ) {
+        throw new Error( 'service must be constructed with a logger' );
+    }
+};
+
 /**
  *
  *  Base64 encode / decode
@@ -169,26 +639,6 @@ var Base64 = {
 
         return string;
     }
-};
-/**
- * BaseModel is used as the base for models that are persisted to the database.  Use ClassExtender to extend.
- *
- * @created: 4/1/13 10:52 AM
- * @author: darryl.west@roundpeg.com
- */
-var BaseModel = function(params) {
-    "use strict";
-    if (!params) params = {};
-
-    // work-around for grails/mongo ids
-    if ( params._id ) {
-        params.id = params._id;
-    }
-
-    this.id = params.id;
-    this.dateCreated = params.dateCreated;
-    this.lastUpdated = params.lastUpdated;
-    this.version = params.version === undefined ? 0 : params.version;
 };
 /**
  * CentralDispatcher - Event and Method dispatcher
@@ -441,36 +891,6 @@ ClassExtender.extend = function(parent, child) {
 
     return child;
 };/**
- * NumericRangeModel - container for named min/max numbers.  verifies that a number is inclusively between the specified
- * min and max range.
- *
- * @created: 5/5/13 8:25 PM
- * @author: darryl.west@roundpeg.com
- */
-var NumericRangeModel = function(params) {
-    "use strict";
-
-    var range = this;
-
-    if (!params) params = {};
-
-    this.name = params.name || 'unknown';
-    this.min = typeof params.min === 'number' ? params.min : Number.MIN_VALUE;
-    this.max = typeof params.max === 'number' ? params.max : Number.MAX_VALUE;
-
-    /**
-     * specify a method that can be invoked when a value is between min and max
-     */
-    this.callbackMethod = params.callbackMethod;
-
-    /**
-     * returns true if 'n' is inclusively between min and max
-     */
-    this.isBetween = function(n) {
-        return range.min <= n && n <= range.max;
-    };
-};
-/**
  * RemoteLogger - log to a remote end point
  * created: 2011.06.28
  *
@@ -640,319 +1060,6 @@ RemoteLogger.createSession = function(appName, appVersion) {
     return session;
 };
 /**
- * lscache library
- * Copyright (c) 2011, Pamela Fox
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/* jshint undef:true, browser:true, node:true */
-/* global define */
-
-(function (root, factory) {
-    if (typeof define === 'function' && define.amd) {
-        // AMD. Register as an anonymous module.
-        define([], factory);
-    } else if (typeof module !== "undefined" && module.exports) {
-        // CommonJS/Node module
-        module.exports = factory();
-    } else {
-        // Browser globals
-        root.lscache = factory();
-    }
-}(this, function () {
-
-  // Prefix for all lscache keys
-  var CACHE_PREFIX = 'lscache-';
-
-  // Suffix for the key name on the expiration items in localStorage
-  var CACHE_SUFFIX = '-cacheexpiration';
-
-  // expiration date radix (set to Base-36 for most space savings)
-  var EXPIRY_RADIX = 10;
-
-  // time resolution in minutes
-  var EXPIRY_UNITS = 60 * 1000;
-
-  // ECMAScript max Date (epoch + 1e8 days)
-  var MAX_DATE = Math.floor(8.64e15/EXPIRY_UNITS);
-
-  var cachedStorage;
-  var cachedJSON;
-  var cacheBucket = '';
-  var warnings = false;
-
-  // Determines if localStorage is supported in the browser;
-  // result is cached for better performance instead of being run each time.
-  // Feature detection is based on how Modernizr does it;
-  // it's not straightforward due to FF4 issues.
-  // It's not run at parse-time as it takes 200ms in Android.
-  function supportsStorage() {
-    var key = '__lscachetest__';
-    var value = key;
-
-    if (cachedStorage !== undefined) {
-      return cachedStorage;
-    }
-
-    try {
-      setItem(key, value);
-      removeItem(key);
-      cachedStorage = true;
-    } catch (exc) {
-      cachedStorage = false;
-    }
-    return cachedStorage;
-  }
-
-  // Determines if native JSON (de-)serialization is supported in the browser.
-  function supportsJSON() {
-    /*jshint eqnull:true */
-    if (cachedJSON === undefined) {
-      cachedJSON = (window.JSON != null);
-    }
-    return cachedJSON;
-  }
-
-  /**
-   * Returns the full string for the localStorage expiration item.
-   * @param {String} key
-   * @return {string}
-   */
-  function expirationKey(key) {
-    return key + CACHE_SUFFIX;
-  }
-
-  /**
-   * Returns the number of minutes since the epoch.
-   * @return {number}
-   */
-  function currentTime() {
-    return Math.floor((new Date().getTime())/EXPIRY_UNITS);
-  }
-
-  /**
-   * Wrapper functions for localStorage methods
-   */
-
-  function getItem(key) {
-    return localStorage.getItem(CACHE_PREFIX + cacheBucket + key);
-  }
-
-  function setItem(key, value) {
-    // Fix for iPad issue - sometimes throws QUOTA_EXCEEDED_ERR on setItem.
-    localStorage.removeItem(CACHE_PREFIX + cacheBucket + key);
-    localStorage.setItem(CACHE_PREFIX + cacheBucket + key, value);
-  }
-
-  function removeItem(key) {
-    localStorage.removeItem(CACHE_PREFIX + cacheBucket + key);
-  }
-
-  function warn(message, err) {
-    if (!warnings) return;
-    if (!('console' in window) || typeof window.console.warn !== 'function') return;
-    window.console.warn("lscache - " + message);
-    if (err) window.console.warn("lscache - The error was: " + err.message);
-  }
-
-  var lscache = {
-    /**
-     * Stores the value in localStorage. Expires after specified number of minutes.
-     * @param {string} key
-     * @param {Object|string} value
-     * @param {number} time
-     */
-    set: function(key, value, time) {
-      if (!supportsStorage()) return;
-
-      // If we don't get a string value, try to stringify
-      // In future, localStorage may properly support storing non-strings
-      // and this can be removed.
-      if (typeof value !== 'string') {
-        if (!supportsJSON()) return;
-        try {
-          value = JSON.stringify(value);
-        } catch (e) {
-          // Sometimes we can't stringify due to circular refs
-          // in complex objects, so we won't bother storing then.
-          return;
-        }
-      }
-
-      try {
-        setItem(key, value);
-      } catch (e) {
-        if (e.name === 'QUOTA_EXCEEDED_ERR' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.name === 'QuotaExceededError') {
-          // If we exceeded the quota, then we will sort
-          // by the expire time, and then remove the N oldest
-          var storedKeys = [];
-          var storedKey;
-          for (var i = 0; i < localStorage.length; i++) {
-            storedKey = localStorage.key(i);
-
-            if (storedKey.indexOf(CACHE_PREFIX + cacheBucket) === 0 && storedKey.indexOf(CACHE_SUFFIX) < 0) {
-              var mainKey = storedKey.substr((CACHE_PREFIX + cacheBucket).length);
-              var exprKey = expirationKey(mainKey);
-              var expiration = getItem(exprKey);
-              if (expiration) {
-                expiration = parseInt(expiration, EXPIRY_RADIX);
-              } else {
-                // TODO: Store date added for non-expiring items for smarter removal
-                expiration = MAX_DATE;
-              }
-              storedKeys.push({
-                key: mainKey,
-                size: (getItem(mainKey)||'').length,
-                expiration: expiration
-              });
-            }
-          }
-          // Sorts the keys with oldest expiration time last
-          storedKeys.sort(function(a, b) { return (b.expiration-a.expiration); });
-
-          var targetSize = (value||'').length;
-          while (storedKeys.length && targetSize > 0) {
-            storedKey = storedKeys.pop();
-            warn("Cache is full, removing item with key '" + key + "'");
-            removeItem(storedKey.key);
-            removeItem(expirationKey(storedKey.key));
-            targetSize -= storedKey.size;
-          }
-          try {
-            setItem(key, value);
-          } catch (e) {
-            // value may be larger than total quota
-            warn("Could not add item with key '" + key + "', perhaps it's too big?", e);
-            return;
-          }
-        } else {
-          // If it was some other error, just give up.
-          warn("Could not add item with key '" + key + "'", e);
-          return;
-        }
-      }
-
-      // If a time is specified, store expiration info in localStorage
-      if (time) {
-        setItem(expirationKey(key), (currentTime() + time).toString(EXPIRY_RADIX));
-      } else {
-        // In case they previously set a time, remove that info from localStorage.
-        removeItem(expirationKey(key));
-      }
-    },
-
-    /**
-     * Retrieves specified value from localStorage, if not expired.
-     * @param {string} key
-     * @return {string|Object}
-     */
-    get: function(key) {
-      if (!supportsStorage()) return null;
-
-      // Return the de-serialized item if not expired
-      var exprKey = expirationKey(key);
-      var expr = getItem(exprKey);
-
-      if (expr) {
-        var expirationTime = parseInt(expr, EXPIRY_RADIX);
-
-        // Check if we should actually kick item out of storage
-        if (currentTime() >= expirationTime) {
-          removeItem(key);
-          removeItem(exprKey);
-          return null;
-        }
-      }
-
-      // Tries to de-serialize stored value if its an object, and returns the normal value otherwise.
-      var value = getItem(key);
-      if (!value || !supportsJSON()) {
-        return value;
-      }
-
-      try {
-        // We can't tell if its JSON or a string, so we try to parse
-        return JSON.parse(value);
-      } catch (e) {
-        // If we can't parse, it's probably because it isn't an object
-        return value;
-      }
-    },
-
-    /**
-     * Removes a value from localStorage.
-     * Equivalent to 'delete' in memcache, but that's a keyword in JS.
-     * @param {string} key
-     */
-    remove: function(key) {
-      if (!supportsStorage()) return null;
-      removeItem(key);
-      removeItem(expirationKey(key));
-    },
-
-    /**
-     * Returns whether local storage is supported.
-     * Currently exposed for testing purposes.
-     * @return {boolean}
-     */
-    supported: function() {
-      return supportsStorage();
-    },
-
-    /**
-     * Flushes all lscache items and expiry markers without affecting rest of localStorage
-     */
-    flush: function() {
-      if (!supportsStorage()) return;
-
-      // Loop in reverse as removing items will change indices of tail
-      for (var i = localStorage.length-1; i >= 0 ; --i) {
-        var key = localStorage.key(i);
-        if (key.indexOf(CACHE_PREFIX + cacheBucket) === 0) {
-          localStorage.removeItem(key);
-        }
-      }
-    },
-
-    /**
-     * Appends CACHE_PREFIX so lscache will partition data in to different buckets.
-     * @param {string} bucket
-     */
-    setBucket: function(bucket) {
-      cacheBucket = bucket;
-    },
-
-    /**
-     * Resets the string being appended to CACHE_PREFIX so lscache will use the default storage behavior.
-     */
-    resetBucket: function() {
-      cacheBucket = '';
-    },
-
-    /**
-     * Sets whether to display warnings when an item is removed from the cache or not.
-     */
-    enableWarnings: function(enabled) {
-      warnings = enabled;
-    }
-  };
-
-  // Return the module
-  return lscache;
-}));
-
-/**
  * darryl.west@roundpeg.com
  */
 
@@ -987,3 +1094,36 @@ var UID = {
         return t.join( '' );
     }
 };
+/**
+ * @created: Sat Jul 19 17:04:28 PDT 2014
+ * @author: darryl.west@roundpeg.com
+ */
+var StandardLib = {};
+
+StandardLib.VERSION = '00.91.005-128';
+
+// fix for lodash
+if ( typeof _ === "function" && typeof dash === "undefined") {
+    dash = _ ;
+}
+
+if (typeof dash.parseBoolean === 'undefined') {
+    dash.parseBoolean = function(value, dflt) {
+        if (dash.isBoolean( value )) {
+            return value;
+        }
+
+        if (!dflt) dflt = false;
+
+        if (dash.isUndefined( value )) {
+            return dflt;
+        }
+
+        if (typeof value === 'string') {
+            return (/^true$/i).test( value );
+        }
+
+        return dflt;
+    };
+}
+

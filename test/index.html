@@ -1,0 +1,72 @@
+<!doctype html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <title>Mocha Spec Runner</title>
+    <link rel="stylesheet" href="lib/mocha/mocha.css">
+    <link rel="stylesheet" href="../app/assets/css/style.css">
+    <script>
+        window.includeTests = true;
+    </script>
+
+    <script src="../libs/head.min.js" data-headjs-load="../includes.js"></script>
+</head>
+<body>
+    <div id="mocha"></div>
+    <div id="content-wrapper">
+        <h3>AMA Support</h3>
+
+        <div id="navBar">
+
+        </div>
+        <table id="supportTable">
+            <thead>
+            <tr>
+                <td>Msg#</td>
+                <td>Time</td>
+                <td>Level</td>
+                <td>Category</td>
+                <td>Log Message</td>
+            </tr>
+            </thead>
+            <tbody id="supportTableBody" class="info">
+
+            </tbody>
+            <tfoot id="supportTableFooter" class="hide">
+            <tr>
+                <td>Msg#</td>
+                <td>Time</td>
+                <td>Level</td>
+                <td>Category</td>
+                <td>Log Message</td>
+            </tr>
+            </tfoot>
+        </table>
+
+        <div id="footer">
+
+        </div>
+
+    </div>
+    <script src="lib/mocha/mocha.js"></script>
+    <script>mocha.setup('bdd')</script>
+    <!-- assertion framework -->
+    <script src="lib/chai.js"></script>
+    <script>
+        mocha.ui('bdd');
+        mocha.reporter('html');
+        var should = chai.should()
+    </script>
+
+    <script type="text/javascript">
+        head.ready( function() {
+            if (window.mochaPhantomJS) {
+                mochaPhantomJS.run();
+            } else {
+                mocha.run();
+            }
+        } );
+    </script>
+
+</body>
+</html>
